@@ -3,64 +3,25 @@
 ## Apply structured logging to the project
 
 <details>
-<summary><b>Create a simple logger</b></summary><p>
+<summary><b>Using a simple logger</b></summary><p>
 
-1. Add a file `log.js` to the `lib` folder
+I built a suite of tools to help folks build production-ready serverless applications while I was at DAZN. It's now open source: [dazn-lambda-powertools](https://github.com/getndazn/dazn-lambda-powertools).
 
-2. Modify `lib/log.js` to the following
+One of the tools available is a very simple logger that supports structured logging (amongst other things).
 
-```javascript
-const LogLevels = {
-  DEBUG : 0,
-  INFO  : 1,
-  WARN  : 2,
-  ERROR : 3
-}
+So, first, let's install the logger for our project.
 
-// default to debug if not specified
-const logLevelName = process.env.log_level || 'DEBUG'
+1. At the project root, run the command `npm install --save @dazn/lambda-powertools-logger` to install the logger.
 
-const isEnabled = (level) => level >= LogLevels[logLevelName]
+Now we need to change all the places where we're using `console.log`.
 
-function appendError(params, err) {
-  if (!err) {
-    return params
-  }
-
-  return Object.assign(
-    { },
-    params || { }, 
-    { errorName: err.name, errorMessage: err.message, stackTrace: err.stack }
-  )
-}
-
-function log (levelName, message, params) {
-  if (!isEnabled(LogLevels[levelName])) {
-    return
-  }
-
-  let logMsg = Object.assign({}, params)
-  logMsg.level = levelName
-  logMsg.message = message
-
-  console.log(JSON.stringify(logMsg))
-}
-
-module.exports = {
-  debug: (msg, params) => log('DEBUG', msg, params),
-  info: (msg, params) => log('INFO',  msg, params),
-  warn: (msg, params, error) => log('WARN',  msg, appendError(params, error)),
-  error: (msg, params, error) => log('ERROR', msg, appendError(params, error))
-}
-```
-
-3. Modify `functions/get-index.js` and replace `console.log` with this new `log` module. Replace the entire `get-index.js` with the following.
+2. Open `functions/get-index.js`, and replace `console.log` with use of the logger. Replace the entire `get-index.js` with the following.
 
 ```javascript
 const fs = require("fs")
 const Mustache = require('mustache')
 const http = require('superagent-promise')(require('superagent'), Promise)
-const Log = require('../lib/log')
+const Log = require('@dazn/lambda-powertools-logger')
 
 const restaurantsApiRoot = process.env.restaurants_api
 const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
@@ -87,8 +48,8 @@ module.exports.handler = async (event, context) => {
   const template = loadHtml()
   const restaurants = await getRestaurants()
   const dayOfWeek = days[new Date().getDay()]
-  const view = { 
-    dayOfWeek, 
+  const view = {
+    dayOfWeek,
     restaurants,
     searchUrl: `${restaurantsApiRoot}/search`,
     placeOrderUrl: `${ordersApiRoot}`
@@ -106,12 +67,12 @@ module.exports.handler = async (event, context) => {
 }
 ```
 
-4. Modify `functions/place-order.js` and replace `console.log` with use of the logger.
+3. Modify `functions/place-order.js` and replace `console.log` with use of the logger.
 
-First, require the `log` module, at the top of the file.
+First, require the logger at the top of the file.
 
 ```javascript
-const Log = require('../lib/log')
+const Log = require('@dazn/lambda-powertools-logger')
 ```
 
 Replace the 2 instances of `console.log` with `Log.debug`.
@@ -128,12 +89,12 @@ On ln27:
 Log.debug(`published 'order_placed' event into Kinesis`)
 ```
 
-5. Modify `functions/notify-restaurant.js` and replace `console.log` with use of the logger.
+4. Modify `functions/notify-restaurant.js` and replace `console.log` with use of the logger.
 
-First, require the `log` module, at the top of the file.
+First, require the logger at the top of the file.
 
 ```javascript
-const Log = require('../lib/log')
+const Log = require('@dazn/lambda-powertools-logger')
 ```
 
 Replace the 2 instances of `console.log` with `Log.debug`.
@@ -150,7 +111,7 @@ On ln32:
 Log.debug(`published 'restaurant_notified' event to Kinesis`)
 ```
 
-6. Run the integration tests
+5. Run the integration tests
 
 `STAGE=dev REGION=eu-west-1 npm run test`
 
@@ -195,6 +156,8 @@ invoking via handler function search-restaurants
 <details>
 <summary><b>Disable debug logging in production</b></summary><p>
 
+This logger allows you to control the default log level via the `LOG_LEVEL` environment variable. Let's configure the `LOG_LEVEL` environment such that we'll be logging at `INFO` level in production, but logging at `DEBUG` level everywhere else.
+
 1. Open `serverless.yml`. Add a `custom` section, this should be at the same level as `provider` and `plugins`.
 
 ```yml
@@ -205,13 +168,13 @@ custom:
     default: DEBUG
 ```
 
-`custom.stage` uses the `${xxx, yyy}` to provide fall backs. In this case, we're saying "if a `stage` variable is provided via the CLI, e.g. `sls deploy --stage staging`, then resolve to `staging`; otherwise, fallback to `provider.stage` in this file (hence the `self` reference"
+`custom.stage` uses the `${xxx, yyy}` syntax to provide fall backs. In this case, we're saying "if a `stage` variable is provided via the CLI, e.g. `sls deploy --stage staging`, then resolve to `staging`; otherwise, fallback to `provider.stage` in this file (hence the `self` reference"
 
 2. Still in the `serverless.yml`, under `provider` section, add the following
 
 ```yml
 environment:
-  log_level: ${self:custom.logLevel.${self:custom.stage}, self:custom.logLevel.default}
+  LOG_LEVEL: ${self:custom.logLevel.${self:custom.stage}, self:custom.logLevel.default}
 ```
 
 After this change, the `provider` section should look like this:
@@ -223,14 +186,14 @@ provider:
   stage: dev
   region: eu-west-1
   environment:
-    log_level: ${self:custom.logLevel.${self:custom.stage}, self:custom.logLevel.default}
+    LOG_LEVEL: ${self:custom.logLevel.${self:custom.stage}, self:custom.logLevel.default}
 ```
 
-This applies the `log_level` environment variable (used to decide what level the logger should log at) to all the functions in the project (since it's specified under `provider`).
+This applies the `LOG_LEVEL` environment variable (used to decide what level the logger should log at) to all the functions in the project (since it's specified under `provider`).
 
-It references the `custom.logLevel` object (with the `self:` syntax), and also references the `custom.stage` value (remember, this can be overriden by CLI options). So when the deployment stage is `prod`, it resolves to `self:custom.logLevel.prod` and `log_level` would be set to `INFO`.
+It references the `custom.logLevel` object (with the `self:` syntax), and also references the `custom.stage` value (remember, this can be overriden by CLI options). So when the deployment stage is `prod`, it resolves to `self:custom.logLevel.prod` and `LOG_LEVEL` would be set to `INFO`.
 
-The second argument, `self:custom.logLevel.default` provides the fallback if the first path is not found. If the deployment stage is `dev`, it'll see that `self:custom.logLevel.dev` doesn't exist, and therefore use the fallback `self:custom.logLevel.default` and set `log_level` to `DEBUG` in that case.
+The second argument, `self:custom.logLevel.default` provides the fallback if the first path is not found. If the deployment stage is `dev`, it'll see that `self:custom.logLevel.dev` doesn't exist, and therefore use the fallback `self:custom.logLevel.default` and set `LOG_LEVEL` to `DEBUG` in that case.
 
 This is a nice trick to specify a stage-specific override, but then fall back to some default value otherwise.
 

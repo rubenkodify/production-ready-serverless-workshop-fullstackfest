@@ -9,6 +9,7 @@
 
 ```yml
   tracing:
+    apiGateway: true
     lambda: true
 ```
 
@@ -35,8 +36,9 @@ provider:
   stage: dev
   region: eu-west-1
   environment:
-    log_level: ${self:custom.logLevel.${self:custom.stage}, self:custom.logLevel.default}
+    LOG_LEVEL: ${self:custom.logLevel.${self:custom.stage}, self:custom.logLevel.default}
   tracing:
+    apiGateway: true
     lambda: true
 ```
 
